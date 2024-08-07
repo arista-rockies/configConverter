@@ -10,6 +10,8 @@ parser.add_argument("--dissector", default="ios.yaml", help="dissector file. def
 
 args = parser.parse_args()
 
+notifications = []
+
 def setupInterface(interface, oldInterface):
     # this function will take the interface dict passed to it and convert it into
     #  pyavd config
@@ -73,6 +75,10 @@ def setupInterface(interface, oldInterface):
     #   ) if speed not set, leave default
     #   ) if duplex is not set, assume auto
     #   ) if duplex and speed set, forced
+
+    if "10" in oldInterface.get("speed", []):
+        notifications.append(f"!!!!!!!!!!!!!!! {interface} has 10Meg.  Care must be taken as to the destination switch capabilities!!!!")
+
     if not "speed" in oldInterface and "duplex" in oldInterface:
         oldInterface.pop("duplex")
     elif "speed" in oldInterface and not "duplex" in oldInterface:
@@ -157,3 +163,6 @@ for interface, interfaceConfig in dev["interface"].items():
         newInterfaces["port_channel_interfaces"].append(setupInterface(interface, interfaceConfig))
 
 print(pyavd.get_device_config(newInterfaces))
+
+for notification in notifications:
+    print(notification)
