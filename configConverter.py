@@ -7,6 +7,7 @@ import re
 parser = argparse.ArgumentParser()
 parser.add_argument("-i", required=True, help="input file")
 parser.add_argument("--dissector", default="ios.yaml", help="dissector file. default=ios.yaml")
+parser.add_argument("--output", default="text", help="default=text, text|yaml")
 
 args = parser.parse_args()
 
@@ -162,7 +163,10 @@ for interface, interfaceConfig in dev["interface"].items():
     elif interface.startswith("Port"):
         newInterfaces["port_channel_interfaces"].append(setupInterface(interface, interfaceConfig))
 
-print(pyavd.get_device_config(newInterfaces))
+if args.output == "text":
+    print(pyavd.get_device_config(newInterfaces))
+elif args.output == "yaml":
+    print(yaml.dump(newInterfaces))
 
 for notification in notifications:
     print(notification)
