@@ -75,9 +75,13 @@
     match: class (\S+)
     parent: class
     child:
-    - match: 'set (?:ip )?(\S+) (?P<marking>\S+)(?: table (?P<table_map>\S+))?'
+    - match: (?:no )?active
+      name: active
+    - match: '\s*set (?:ip )?(\S+) (?P<marking>\S+)(?: table (?P<table_map>\S+))?'
       parent: set
     - match: queue-buffers ratio (?P<queue_ratio>\d+)
+    - match: '\s*police (?P<rate>\d+) (?P<rate_unit>\S+)(.*) (?P<rate_burst_size>\d+) (?P<rate_burst_size_unit>\S+) (?:conform-action (?P<conform_action>\S+) (?:exceed-action (?P<exceed_action>\S+)))(?P<rest>.*)'
+      parent: police
 - match: interface (\S+)
   parent: interface
   child:
