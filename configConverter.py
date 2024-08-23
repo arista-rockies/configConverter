@@ -3,6 +3,7 @@ import yaml
 import argparse
 import pyavd.get_device_config
 import re
+from copy import deepcopy
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-i", required=True, help="input file")
@@ -13,7 +14,18 @@ args = parser.parse_args()
 
 notifications = []
 
-def setupInterface(interface, oldInterface):
+def _findPolicyMap(pm, policyMaps):
+    if pm == None:
+        return None
+
+    ####  this function could be more pythonic, sacrificing that for readability
+    for definedPM in policyMaps["qos"]:
+        if definedPM["name"] == pm:
+            return definedPM
+
+    return None
+
+def setupInterface(interface, oldInterface, policyMaps):
     # this function will take the interface dict passed to it and convert it into
     #  pyavd config
     newInterface = {}
@@ -126,6 +138,35 @@ def setupInterface(interface, oldInterface):
     if "ipv4_proxy_arp" in oldInterface:
         newInterface["ip_proxy_arp"] = oldInterface.pop("ipv4_proxy_arp")
 
+    # the 720xp is best handled by using an interface level shaper.
+    #  i need to parse
+    #    out what service-policy is on an interface
+    #    look for that policy-map
+    #    look at the first class in that policy-map
+    #    find the right rate and unit
+    #    convert it to kbps
+    #    emit the shaper value
+
+    if "service_policy" in oldInterface:
+        sp = oldInterface.pop("service_policy")
+        # we will prefer the ingress policy over the egress policy
+        spName = sp.get("ingress", sp.get("egress", None))
+        pm = _findPolicyMap(spName, policyMaps)
+        if pm:
+            if "police" in pm["classes"][0]:
+                rate = int(pm["classes"][0]["police"]["rate"])
+                unit = pm["classes"][0]["police"]["rate_unit"]
+                if unit == "bps":
+                    rate = int(rate/1024)
+                    unit = "kbps"
+                elif unit == "mbps":
+                    rate = int(rate*1024)
+                    unit = "kbps"
+                elif unit == "pps":
+                    unit = "pps"
+
+                newInterface["shape"] = { "rate": f'{rate} {unit}'}
+
     ##### these are things i don't care about
     if "cdp_enable" in oldInterface:
         oldInterface.pop("cdp_enable")
@@ -146,27 +187,84 @@ def setupInterface(interface, oldInterface):
 
     return newInterface
 
+def setClassMaps(classMapName, classMap):
+    newClassMap = {"name": classMapName}
+    if classMap.get("match", "") == "all":
+        newClassMap["ip"] = { "access_group": "matchAllv4" }
+        newClassMap["ipv6" ] = { "access_group": "matchAllv6" }
+
+    return newClassMap
+
+def setPolicyMaps(policyMapName, policyMap):
+    newPolicyMap = { "name": policyMapName }
+    newPolicyMap["classes"] = []
+    for className, classEntry in policyMap["class"].items():
+        newClass = { "name": className }
+        if "police" in classEntry:
+            newClass["police"] = {}
+            if "rate" in classEntry["police"]:
+                newClass["police"]["rate"] = classEntry["police"].pop("rate")
+            if "rate_unit" in classEntry["police"]:
+                newClass["police"]["rate_unit"] = classEntry["police"].pop("rate_unit")
+            if "rate_burst_size" in classEntry["police"]:
+                newClass["police"]["rate_burst_size"] = classEntry["police"].pop("rate_burst_size")
+            if "rate_burst_size_unit" in classEntry["police"]:
+                rbu = classEntry["police"].pop("rate_burst_size_unit")
+                if rbu == "mbyte":
+                    rbu = "mbytes"
+
+                newClass["police"]["rate_burst_size_unit"] = rbu
+            if classEntry["police"].get("exceed_action", "") == "drop":
+                newClass["police"]["action"] = { "type": "drop-precedence" }
+                try:
+                    newClass["police"].pop("exceed_action")
+                except:
+                    pass
+    newPolicyMap["classes"].append(deepcopy(newClass))
+
+    #if len(policyMap) > 0:
+        #print("POLICYMAP")
+        #print(policyMap)
+        #print("*******")
+
+    return newPolicyMap
+
 dissector = confparser.Dissector.from_file(args.dissector)
 dev = dissector.parse_file(args.i)
 
-newInterfaces = {
+newDevice = {
         "ethernet_interfaces": [],
         "vlan_interfaces": [],
-        "port_channel_interfaces": []
+        "port_channel_interfaces": [],
+        "class_maps": {},
+        "policy_maps": {}
 }
+
+if "class_map" in dev:
+    newDevice["class_maps"]["qos"] = []
+    for classMapName, classMap in dev["class_map"].items():
+        newDevice["class_maps"]["qos"].append(setClassMaps(classMapName, classMap))
+    dev.pop("class_map")
+
+    if "policy_map" in dev:
+        newDevice["policy_maps"]["qos"] = []
+        for policyMapName, policyMap in dev["policy_map"].items():
+            newDevice["policy_maps"]["qos"].append(setPolicyMaps(policyMapName, policyMap))
+        dev.pop("policy_map")
 
 for interface, interfaceConfig in dev["interface"].items():
     if interface.startswith("Gigabit"):
-        newInterfaces["ethernet_interfaces"].append(setupInterface(interface, interfaceConfig))
+        newDevice["ethernet_interfaces"].append(setupInterface(interface, interfaceConfig, newDevice["policy_maps"]))
     elif interface.startswith("Vlan"):
-        newInterfaces["vlan_interfaces"].append(setupInterface(interface, interfaceConfig))
+        newDevice["vlan_interfaces"].append(setupInterface(interface, interfaceConfig, newDevice["policy_maps"]))
     elif interface.startswith("Port"):
-        newInterfaces["port_channel_interfaces"].append(setupInterface(interface, interfaceConfig))
+        newDevice["port_channel_interfaces"].append(setupInterface(interface, interfaceConfig, newDevice["policy_maps"]))
+
 
 if args.output == "text":
-    print(pyavd.get_device_config(newInterfaces))
+    print(pyavd.get_device_config(newDevice))
 elif args.output == "yaml":
-    print(yaml.dump(newInterfaces))
+    print(yaml.dump(newDevice))
 
 for notification in notifications:
     print(notification)
