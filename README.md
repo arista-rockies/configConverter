@@ -10,11 +10,12 @@ Utilizes several tools to convert switch configurations to Arista EOS
 ## usage
 ```
 $ python configConverter.py --help
-usage: configConverter.py [-h] -i I [--dissector DISSECTOR]
+usage: configConverter.py [-h] -i I [--dissector DISSECTOR] [--output OUTPUT]
 
 options:
   -h, --help            show this help message and exit
   -i I                  input file
   --dissector DISSECTOR
                         dissector file. default=ios.yaml
+  --output OUTPUT       default=text, text|yaml
 ```
