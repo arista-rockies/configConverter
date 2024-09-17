@@ -15,7 +15,7 @@ args = parser.parse_args()
 notifications = []
 
 def _findPolicyMap(pm, policyMaps):
-    if pm == None:
+    if pm == None or "qos" not in policyMaps:
         return None
 
     ####  this function could be more pythonic, sacrificing that for readability
